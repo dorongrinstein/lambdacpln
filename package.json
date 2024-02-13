@@ -1,0 +1,15 @@
+{
+  "name": "lambdacpln",
+  "version": "1.0.6",
+  "description": "Converts a Lambda function to an express app with a Dockerfile",
+  "main": "convert.js",
+  "bin": {
+    "lambda2cpln": "./convert.js"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "Doron Grinstein, Control Plane Corporation https://controlplane.com",
+  "license": "ISC"
+}

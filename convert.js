@@ -69,7 +69,12 @@ app.post('/${routeName}', async (req, res) => {
     const event = { ...req.body };
     try {
         const result = await handler(event);
-        res.send(result);
+        let sc = 200;
+        if (result.statusCode) {
+            sc = result.statusCode;
+            delete result.statusCode;
+        }
+        res.status(sc).send(result);
     } catch (error) {
         console.error(error);
         res.status(500).send('Internal Server Error');
@@ -124,10 +129,10 @@ CMD [ "node", "server.js" ]
         fs.writeFileSync('package.json', package);
 
 
-    console.log('Successfully generated server.js and Dockerfile for Node.js 18.16.');
+    console.log('Successfully generated server.js, Dockerfile for Node.js 18.16.');
 }
 
-// Example usage: node convertLambdaToExpressAndCreateDockerfile.js index.js uppercase
+// Example usage: node lambdacpln.js index.js uppercase
 const args = process.argv.slice(2);
 if (args.length !== 2) {
     console.log('Usage: npx lambdacpln <path to lambda file> <route name>');
@@ -135,5 +140,14 @@ if (args.length !== 2) {
 }
 
 const [lambdaFilePath, routeName] = args;
-ensureExpressDependency();
+
+if (fs.existsSync('./server.js')) {
+    console.log('a file named server.js already exists, cannot convert. Exiting');
+    process.exit(1);
+}
+
+if (fs.existsSync("./package.json")) {
+    ensureExpressDependency();
+}
+
 convertLambdaToExpressAndCreateDockerfile(lambdaFilePath, routeName);

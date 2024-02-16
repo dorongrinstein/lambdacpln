@@ -56,7 +56,9 @@ function generateServerCode(handlerFileName, routeName, typescript = false) {
   if (typescript) {
     expressAppCode = `
 import express, { Express, Request, Response } from 'express';
-import { handler } from './${handlerFileName}';
+
+let handler = require('./${handlerFileName}')
+handler = handler.handler ?? handler.default
 
 const app: Express = express();
 const port = process.env.PORT || 8080;
@@ -86,7 +88,9 @@ app.listen(port, () => {
   } else {
     expressAppCode = `
 const express = require('express');
-const { handler } = require('./${handlerFileName}');
+
+let handler = require('./${handlerFileName}')
+handler = handler.handler ?? handler.default
 
 const app = express()
 const port = process.env.PORT || 8080;

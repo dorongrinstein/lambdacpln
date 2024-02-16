@@ -227,6 +227,8 @@ function generateTsconfig() {
  * @param {string} routeName The route name for the Express app.
  */
 function convertLambdaToExpressAndCreateDockerfile(lambdaFilePath, routeName) {
+  lambdaFilePath = path.join(".", lambdaFilePath);
+
   const isTypescript = lambdaFilePath.endsWith(".ts");
   let lambdaFileName;
 

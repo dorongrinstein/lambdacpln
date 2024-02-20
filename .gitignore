@@ -3,3 +3,4 @@ server.js
 Dockerfile
 index.js
 package-lock.json
+tests/

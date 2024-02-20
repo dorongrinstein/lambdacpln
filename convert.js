@@ -50,6 +50,7 @@ const packageJsonPath = path.join(process.cwd(), "package.json");
 function generateServerCode(handlers) {
   return `
 import express, { Express, Request, Response } from 'express';
+import { APIGatewayProxyEvent } from "aws-lambda";
 
 ${handlers.map((h) => h.getImportLine()).join("")}
 
@@ -62,7 +63,13 @@ ${handlers
   .map(
     (h) => `
 app.post('/${h.getRouteName()}', async (req: Request, res: Response) => {
-  const event = { ...req.body } as any;
+  const event = {
+    body: JSON.stringify(req.body),
+    pathParameters: req.params,
+    queryStringParameters: req.query,
+    headers: req.headers,
+    path: req.path,
+  } as APIGatewayProxyEvent;
   try {
       const result = await ${h.getImportName()}(event) as any;
       let sc = 200;
@@ -107,6 +114,12 @@ CMD [ "node", "dist/server.js" ]
 `;
 }
 
+function generateDockerIgnore() {
+  return `
+**/node_modules
+`;
+}
+
 /**
  *
  * @param {{object}} dep1 Primary object, should take precedence
@@ -128,7 +141,6 @@ function mergeDependencies(dep1, dep2) {
 function generatePackage(existingPackage) {
   const serverDependencies = {
     express: "^4.18.2",
-    "aws-lambda": "^1.0.7",
   };
   const serverDevDependencies = {
     "@types/express": "^4.17.21",
@@ -195,10 +207,12 @@ function convertLambdaToExpressAndCreateDockerfile(
 
   const expressAppCode = generateServerCode(handlers);
   const dockerfileContent = generateDockerfile();
+  const dockerIgnoreContent = generateDockerIgnore();
   const package = generatePackage(existingPackage);
 
   fs.writeFileSync(path.join(outputDir, `server.ts`), expressAppCode);
   fs.writeFileSync(path.join(outputDir, "Dockerfile"), dockerfileContent);
+  fs.writeFileSync(path.join(outputDir, ".dockerignore"), dockerIgnoreContent);
   fs.writeFileSync(path.join(outputDir, "package.json"), package);
   fs.writeFileSync(path.join(outputDir, "tsconfig.json"), generateTsconfig());
 

@@ -3,190 +3,18 @@
 const fs = require("fs");
 const path = require("path");
 
-const copyDir = require("./util/copyDir").copyDir;
-const toCamelCase = require("./util/toCamelCase").toCamelCase;
+const util = require("./util");
+const code = require("./code");
+const Handler = require("./handler").Handler;
 
-class Handler {
-  constructor(pathName) {
-    this.pathName = path.join(".", pathName);
-  }
-
-  withoutExtension() {
-    return this.pathName.split(".")[0];
-  }
-
-  /**
-   * Creates a routename based on the parent directory name
-   *
-   * @param {string[]} lambdaFilePaths Path to the Lambda function file.
-   *
-   * @returns {string}
-   */
-  getRouteName() {
-    const parentDirName = path.basename(path.dirname(this.pathName));
-    const fileName = path.basename(this.withoutExtension());
-
-    if (parentDirName !== ".") return parentDirName;
-    else return fileName;
-  }
-
-  getImportName() {
-    return toCamelCase(this.getRouteName() + "Handler");
-  }
-
-  // Imports files as if ../ is parent directory
-  getImportLine() {
-    const importName = this.getImportName();
-    return `
-let ${importName} = require("./${this.withoutExtension()}")
-${importName} = ${importName}.handler ?? ${importName}.default
-`;
-  }
-}
-
-// Define the path to package.json in the current directory
-const packageJsonPath = path.join(process.cwd(), "package.json");
-
-function generateServerCode(handlers) {
-  return `
-import express, { Express, Request, Response } from 'express';
-import { APIGatewayProxyEvent } from "aws-lambda";
-
-${handlers.map((h) => h.getImportLine()).join("")}
-
-const app: Express = express();
-const port = process.env.PORT || 8080;
-
-app.use(express.json());
-
-${handlers
-  .map(
-    (h) => `
-app.post('/${h.getRouteName()}', async (req: Request, res: Response) => {
-  const event = {
-    body: JSON.stringify(req.body),
-    pathParameters: req.params,
-    queryStringParameters: req.query,
-    headers: req.headers,
-    path: req.path,
-  } as APIGatewayProxyEvent;
-  try {
-      const result = await ${h.getImportName()}(event) as any;
-      let sc = 200;
-      if (result.statusCode) {
-          sc = result.statusCode;
-          delete result.statusCode;
-      }
-      res.status(sc).send(result);
-  } catch (error) {
-      console.error(error);
-      res.status(500).send('Internal Server Error');
-  }
-});
-`
-  )
-  .join("")}
-
-app.listen(port, () => {
-  console.log(\`Server running on http://localhost:\${port}\`);
-});
-`;
-}
-
-function generateDockerfile() {
-  return `
-# Stage 1: Build
-FROM node:20 AS builder
-WORKDIR /usr/src/app
-COPY package*.json ./
-RUN npm install
-COPY . .
-RUN npx tsc
-
-# Stage 2: Run
-FROM node:20-slim
-WORKDIR /usr/src/app
-COPY --from=builder /usr/src/app/dist ./dist
-COPY package*.json ./
-RUN npm install --only=production
-EXPOSE 8080
-CMD [ "node", "dist/server.js" ]
-`;
-}
-
-function generateDockerIgnore() {
-  return `
-**/node_modules
-`;
-}
-
-/**
- *
- * @param {{object}} dep1 Primary object, should take precedence
- * @param {{object}} dep2 Secondary object
- */
-function mergeDependencies(dep1, dep2) {
-  if (dep1 == undefined) return { ...dep2 };
-  if (dep2 == undefined) return { ...dep1 };
-
-  const res = { ...dep2 };
-
-  for (key in dep1) {
-    res[key] = dep1[key];
-  }
-
-  return res;
-}
-
-function generatePackage(existingPackage) {
-  const serverDependencies = {
-    express: "^4.18.2",
-  };
-  const serverDevDependencies = {
-    "@types/express": "^4.17.21",
-    "@types/aws-lambda": "^8.10.102",
-    typescript: "^5.3.3",
-    "@types/node": "20.11.19",
-  };
-
-  const dependencies = mergeDependencies(
-    existingPackage.dependencies,
-    serverDependencies
-  );
-  const devDependencies = mergeDependencies(
-    existingPackage.devDependencies,
-    serverDevDependencies
-  );
-  return JSON.stringify({
-    name: "server",
-    version: "1.0.0",
-    description: "Express server created by lambdacpln utility",
-    main: "server.js",
-    scripts: {
-      start: "node server.js",
-      build: "tsc",
-    },
-    dependencies,
-    devDependencies,
-    author: "",
-    license: "ISC",
-  });
-}
-
-function generateTsconfig() {
-  return `
-{
-  "compilerOptions": {
-    "target": "es2016",
-    "module": "commonjs",
-    "esModuleInterop": true,
-    "rootDir": "./",
-    "outDir": "dist",
-    "skipLibCheck": true
-  }
-}
-`;
-}
+// Constants
+const IGNORE_FILES = [
+  ".git",
+  "package.json",
+  ".tsconfig",
+  ".gitignore",
+  ".npmignore",
+];
 
 /**
  * Converts a Lambda handler file to an Express app and generates a Dockerfile for Node.js 20.
@@ -205,16 +33,19 @@ function convertLambdaToExpressAndCreateDockerfile(
     handlers.push(new Handler(filePath));
   }
 
-  const expressAppCode = generateServerCode(handlers);
-  const dockerfileContent = generateDockerfile();
-  const dockerIgnoreContent = generateDockerIgnore();
-  const package = generatePackage(existingPackage);
+  const expressAppCode = code.generateServerCode(handlers);
+  const dockerfileContent = code.generateDockerfile();
+  const dockerIgnoreContent = code.generateDockerIgnore();
+  const package = code.generatePackage(existingPackage);
 
   fs.writeFileSync(path.join(outputDir, `server.ts`), expressAppCode);
   fs.writeFileSync(path.join(outputDir, "Dockerfile"), dockerfileContent);
   fs.writeFileSync(path.join(outputDir, ".dockerignore"), dockerIgnoreContent);
   fs.writeFileSync(path.join(outputDir, "package.json"), package);
-  fs.writeFileSync(path.join(outputDir, "tsconfig.json"), generateTsconfig());
+  fs.writeFileSync(
+    path.join(outputDir, "tsconfig.json"),
+    code.generateTsconfig()
+  );
 
   console.log(`Successfully generated cpln container for Node.js 20`);
 }
@@ -251,13 +82,7 @@ try {
 // Copy files over
 const cplnDir = path.join(process.cwd(), "cpln");
 try {
-  copyDir(process.cwd(), cplnDir, [
-    ".git",
-    "package.json",
-    ".tsconfig",
-    ".gitignore",
-    ".npmignore",
-  ]);
+  util.copyDir(process.cwd(), cplnDir, IGNORE_FILES);
 } catch (e) {
   console.log(e.message + "\nExiting...");
   process.exit(1);
